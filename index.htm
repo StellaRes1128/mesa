@@ -167,61 +167,6 @@
             border-bottom-left-radius: 6px;
             display: none;
         }
-
-        /* ==================== FOOTER ==================== */
-        footer {
-            background: var(--panel);
-            border-top: 1px solid rgba(192, 38, 211, 0.3);
-            padding: 1.8rem 2rem;
-        }
-
-        .input-area {
-            display: flex;
-            gap: 16px;
-            align-items: end;
-            max-width: 900px;
-            margin: 0 auto;
-        }
-
-        textarea {
-            flex: 1;
-            background: rgba(42, 27, 61, 0.8);
-            border: 1px solid rgba(192, 38, 211, 0.4);
-            color: var(--text);
-            border-radius: 20px;
-            padding: 16px 22px;
-            font-size: 1.05rem;
-            resize: none;
-            min-height: 58px;
-            max-height: 180px;
-            box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.2);
-        }
-
-        .btn-send {
-            width: 58px;
-            height: 58px;
-            background: linear-gradient(90deg, #c026d3, #e879f9);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            box-shadow: 0 8px 20px rgba(192, 38, 211, 0.3);
-        }
-
-        .btn-send:hover {
-            transform: scale(1.08);
-        }
-
-        .placeholder {
-            opacity: 0.6;
-            font-style: italic;
-            text-align: center;
-            margin-top: 60px;
-        }
     </style>
 </head>
 <body>
@@ -268,7 +213,7 @@
                 </button>
             </div>
             <p style="text-align: center; margin-top: 14px; font-size: 0.8rem; color: var(--text-muted);">
-                Powered by OpenAI • gpt-4o-mini
+                Powered by OpenAI • gpt-4o-mini + RAG
             </p>
         </footer>
     </div>
@@ -278,16 +223,42 @@
         // Variables globales de estado
         let apiKey = '';
         let conversationHistory = [];
+        let KNOWLEDGE_BASE = '';
 
         /* ==================== Módulo 2 → RAG ==================== */
         // Base de conocimiento (se llenará más adelante)
-        const knowledgeBase = [
-            // Ejemplo futuro: artículos, FAQs, tickets comunes
-        ];
+        async function loadKnowledgeBase() {
+            try {
+                const response = await fetch('./catalogo.txt');
+                if (!response.ok) throw new Error('No se pudo cargar el catálogo');
+                
+                KNOWLEDGE_BASE = await response.text();
+                console.log('%c✅ Base de conocimiento cargada correctamente', 'color: #22c55e');
+                
+                // Mostrar mensaje de carga exitosa
+                addMessage('assistant', '📚 Catálogo de conocimiento cargado. Estoy listo para ayudarte.');
+            } catch (error) {
+                console.error(error);
+                KNOWLEDGE_BASE = 'No se pudo cargar el catálogo.';
+                addMessage('assistant', '⚠️ No se pudo cargar el catálogo de conocimiento. Algunas respuestas podrían ser limitadas.');
+            }
+        }
 
         /* ==================== Módulo 3 → System Prompt ==================== */
         // Prompt del sistema (se usará cuando se conecte a la API)
-        const SYSTEM_PROMPT = `Eres un asistente profesional y amable de Mesa de Ayuda técnica. Responde de forma clara, estructurada y útil.`;
+        let SYSTEM_PROMPT = `Eres un asistente profesional y amable de Mesa de Ayuda técnica. Responde de forma clara, estructurada y útil.`;
+
+        function buildSystemPrompt() {
+            SYSTEM_PROMPT = `Eres el asistente de Mesa de Ayuda IA.
+REGLAS CRÍTICAS:
+1. Responde ÚNICAMENTE usando la información del catálogo proporcionado.
+2. Si la información no está en el catálogo, di: "Esa información no está disponible. Te recomiendo contactar directamente con soporte."
+3. Tono: profesional, claro y conciso.
+4. Nunca inventes datos que no estén en el catálogo.
+
+BASE DE CONOCIMIENTO:
+${KNOWLEDGE_BASE || 'Catálogo aún no cargado.'}`;
+        }
 
         /* ==================== Módulo 4 → API Key ==================== */
         function saveApiKey() {
@@ -308,12 +279,10 @@
             const btn = document.getElementById('connectBtn');
             
             if (saveApiKey()) {
-                // Deshabilitar input y botón
                 input.disabled = true;
                 btn.textContent = '✓ Conectado';
                 btn.disabled = true;
                 
-                // Actualizar estado
                 document.getElementById('status').textContent = 'Conectado';
                 document.getElementById('statusDot').style.background = 'var(--success)';
                 document.getElementById('statusDot').style.boxShadow = '0 0 12px var(--success)';
@@ -332,16 +301,10 @@
                 return;
             }
             
-            // Agregar mensaje del usuario
             addMessage('user', messageText);
-            
-            // Guardar en historial
             conversationHistory.push({ role: 'user', content: messageText });
-            
-            // Limpiar input
             textarea.value = '';
             
-            // Mostrar indicador de escritura
             showTyping(true);
             
             try {
@@ -362,17 +325,12 @@
                     })
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`Error ${response.status}: ${response.statusText}`);
-                }
+                if (!response.ok) throw new Error(`Error ${response.status}`);
                 
                 const data = await response.json();
                 const assistantReply = data.choices[0].message.content;
                 
-                // Guardar en historial
                 conversationHistory.push({ role: 'assistant', content: assistantReply });
-                
-                // Mostrar respuesta
                 showTyping(false);
                 addMessage('assistant', assistantReply);
                 
@@ -428,18 +386,17 @@
         }
 
         // Inicialización
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('%c✅ Mesa de Ayuda IA • Conexión OpenAI lista', 'color: #e879f9; font-weight: bold');
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('%c✅ Mesa de Ayuda IA • Sistema RAG cargado', 'color: #e879f9; font-weight: bold');
+            
+            // Cargar base de conocimiento
+            await loadKnowledgeBase();
+            buildSystemPrompt();
             
             const textarea = document.getElementById('userInput');
-            
-            // Auto-resize
             textarea.addEventListener('input', () => autoResize(textarea));
-            
-            // Key handler
             textarea.addEventListener('keydown', handleKey);
             
-            // Enfocar al cargar
             setTimeout(() => {
                 textarea.focus();
                 autoResize(textarea);
